@@ -1,15 +1,15 @@
 #pragma once
 #include "pch.h"
 
-class JustShimClrProfiler :ICorProfilerCallback6
+class JustShimClrProfiler :ICorProfilerCallback9
 {
 private:
     std::atomic<int> refCount;
-    ICorProfilerCallback6* corProfilerCallback;
+    ICorProfilerInfo8* corProfilerInfo;
 
 public:
     JustShimClrProfiler();
-    ~JustShimClrProfiler();
+    virtual ~JustShimClrProfiler();
 
     // Inherited via ICorProfilerCallback6
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override;
@@ -104,4 +104,9 @@ public:
     HRESULT STDMETHODCALLTYPE SurvivingReferences2(ULONG cSurvivingObjectIDRanges, ObjectID objectIDRangeStart[], SIZE_T cObjectIDRangeLength[]) override;
     HRESULT STDMETHODCALLTYPE ConditionalWeakTableElementReferences(ULONG cRootRefs, ObjectID keyRefIds[], ObjectID valueRefIds[], GCHandleID rootIds[]) override;
     HRESULT STDMETHODCALLTYPE GetAssemblyReferences(const WCHAR* wszAssemblyPath, ICorProfilerAssemblyReferenceProvider* pAsmRefProvider) override;
+    //above ICorProfilerCallback6
+    HRESULT STDMETHODCALLTYPE ModuleInMemorySymbolsUpdated(ModuleID moduleId) override;
+    HRESULT STDMETHODCALLTYPE DynamicMethodJITCompilationStarted(FunctionID functionId, BOOL fIsSafeToBlock, LPCBYTE pILHeader, ULONG cbILHeader) override;
+    HRESULT STDMETHODCALLTYPE DynamicMethodJITCompilationFinished(FunctionID functionId, HRESULT hrStatus, BOOL fIsSafeToBlock) override;
+    HRESULT STDMETHODCALLTYPE DynamicMethodUnloaded(FunctionID functionId) override;
 };

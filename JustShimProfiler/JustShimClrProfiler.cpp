@@ -1,34 +1,80 @@
 #include "pch.h"
 #include "JustShimClrProfiler.h"
 
-JustShimClrProfiler::JustShimClrProfiler() :refCount(0), corProfilerCallback(nullptr) {
+JustShimClrProfiler::JustShimClrProfiler() :refCount(0), corProfilerInfo(nullptr) {
 }
 
 JustShimClrProfiler::~JustShimClrProfiler() {
+    if (this->corProfilerInfo != nullptr) {
+        this->corProfilerInfo->Release();
+        this->corProfilerInfo = nullptr;
+    }
 }
 
 HRESULT STDMETHODCALLTYPE JustShimClrProfiler::QueryInterface(REFIID riid, void** ppvObject)
 {
-    return S_OK;
+    if (riid == __uuidof(ICorProfilerCallback9) ||
+        riid == __uuidof(ICorProfilerCallback8) ||
+        riid == __uuidof(ICorProfilerCallback7) ||
+        riid == __uuidof(ICorProfilerCallback6) ||
+        riid == __uuidof(ICorProfilerCallback5) ||
+        riid == __uuidof(ICorProfilerCallback4) ||
+        riid == __uuidof(ICorProfilerCallback3) ||
+        riid == __uuidof(ICorProfilerCallback2) ||
+        riid == __uuidof(ICorProfilerCallback)
+        ) {
+        *ppvObject = this;
+        this->AddRef();
+
+        return S_OK;
+    }
+    *ppvObject = nullptr;
+    return E_NOINTERFACE;
 }
 
 ULONG STDMETHODCALLTYPE JustShimClrProfiler::AddRef(void)
 {
-    return 0;
+    ULONG r = std::atomic_fetch_add(&this->refCount, 1) + 1;
+
+    return r;
 }
 
 ULONG STDMETHODCALLTYPE JustShimClrProfiler::Release(void)
 {
-    return 0;
+    int count = std::atomic_fetch_sub(&this->refCount, 1) - 1;
+
+    if (count <= 0) {
+        delete this;
+    }
+
+    return count;
 }
 
 HRESULT STDMETHODCALLTYPE JustShimClrProfiler::Initialize(IUnknown* pICorProfilerInfoUnk)
 {
+    HRESULT queryInterfaceResult = pICorProfilerInfoUnk->QueryInterface(__uuidof(ICorProfilerInfo8), reinterpret_cast<void**>(&this->corProfilerInfo));
+    if (FAILED(queryInterfaceResult)) {
+        return E_FAIL;
+    }
+
+    DWORD eventMask = COR_PRF_MONITOR_JIT_COMPILATION |
+        COR_PRF_DISABLE_TRANSPARENCY_CHECKS_UNDER_FULL_TRUST | /* helps the case where this profiler is used on Full CLR */
+        COR_PRF_DISABLE_INLINING;
+
+    auto hr = this->corProfilerInfo->SetEventMask(eventMask);
+
+
     return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE JustShimClrProfiler::Shutdown(void)
 {
+    if (this->corProfilerInfo != nullptr)
+    {
+        this->corProfilerInfo->Release();
+        this->corProfilerInfo = nullptr;
+    }
+
     return S_OK;
 }
 
@@ -124,6 +170,7 @@ HRESULT STDMETHODCALLTYPE JustShimClrProfiler::FunctionUnloadStarted(FunctionID 
 
 HRESULT STDMETHODCALLTYPE JustShimClrProfiler::JITCompilationStarted(FunctionID functionId, BOOL fIsSafeToBlock)
 {
+    std::cout << "JITCompilationStarted" << std::endl;
     return S_OK;
 }
 
@@ -458,6 +505,27 @@ HRESULT STDMETHODCALLTYPE JustShimClrProfiler::ConditionalWeakTableElementRefere
 }
 
 HRESULT STDMETHODCALLTYPE JustShimClrProfiler::GetAssemblyReferences(const WCHAR* wszAssemblyPath, ICorProfilerAssemblyReferenceProvider* pAsmRefProvider)
+{
+    return S_OK;
+}
+
+//above ICorProfilerCallback6
+HRESULT STDMETHODCALLTYPE JustShimClrProfiler::ModuleInMemorySymbolsUpdated(ModuleID moduleId)
+{
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE JustShimClrProfiler::DynamicMethodJITCompilationStarted(FunctionID functionId, BOOL fIsSafeToBlock, LPCBYTE pILHeader, ULONG cbILHeader)
+{
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE JustShimClrProfiler::DynamicMethodJITCompilationFinished(FunctionID functionId, HRESULT hrStatus, BOOL fIsSafeToBlock)
+{
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE JustShimClrProfiler::DynamicMethodUnloaded(FunctionID functionId)
 {
     return S_OK;
 }

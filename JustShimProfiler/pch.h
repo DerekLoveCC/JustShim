@@ -10,8 +10,10 @@
 // add headers that you want to pre-compile here
 
 #include "framework.h"
+#include "unknwn.h"
 #include <atomic>
 #include <cor.h>
 #include <corprof.h>
+#include <iostream>
 
 #endif //PCH_H
