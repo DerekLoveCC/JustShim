@@ -63,7 +63,6 @@ HRESULT STDMETHODCALLTYPE JustShimClrProfiler::Initialize(IUnknown* pICorProfile
 
     auto hr = this->corProfilerInfo->SetEventMask(eventMask);
 
-
     return S_OK;
 }
 

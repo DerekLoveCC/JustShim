@@ -9,11 +9,11 @@ JustShimProfilerFactory::~JustShimProfilerFactory()
 {
 }
 
-const IID IID_IJustShimProfilerFactory = { 0xe0ef3012, 0x876a, 0x4d06, { 0x98, 0xce, 0xb7, 0x3a, 0xd, 0x1, 0xbe, 0xe3 } };
+const IID IID_JustShimProfilerFactory = { 0x3f2b361, 0xa89d, 0x463a, { 0xaa, 0x65, 0xdb, 0x71, 0x1d, 0x44, 0x48, 0xa0 } };//{03F2B361-A89D-463A-AA65-DB711D4448A0}
 
 HRESULT STDMETHODCALLTYPE JustShimProfilerFactory::QueryInterface(REFIID riid, void** ppvObject)
 {
-    if (riid == IID_IUnknown || riid == IID_IJustShimProfilerFactory)
+    if (riid == IID_IUnknown || riid == IID_JustShimProfilerFactory)
     {
         *ppvObject = this;
         this->AddRef();

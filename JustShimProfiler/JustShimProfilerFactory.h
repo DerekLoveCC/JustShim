@@ -1,6 +1,8 @@
 #pragma once
 #include "pch.h"
 
+extern const IID IID_JustShimProfilerFactory;
+
 class JustShimProfilerFactory : public IClassFactory
 {
 private:
