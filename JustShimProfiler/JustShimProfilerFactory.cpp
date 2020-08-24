@@ -13,7 +13,7 @@ const IID IID_JustShimProfilerFactory = { 0x3f2b361, 0xa89d, 0x463a, { 0xaa, 0x6
 
 HRESULT STDMETHODCALLTYPE JustShimProfilerFactory::QueryInterface(REFIID riid, void** ppvObject)
 {
-    if (riid == IID_IUnknown || riid == IID_JustShimProfilerFactory)
+    if (riid == IID_IUnknown || riid == IID_IClassFactory)
     {
         *ppvObject = this;
         this->AddRef();

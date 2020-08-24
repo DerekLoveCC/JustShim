@@ -1,0 +1,5 @@
+LIBRARY "JustShimProfiler.Dll"
+
+EXPORTS
+    DllCanUnloadNow PRIVATE
+    DllGetClassObject PRIVATE

@@ -1,0 +1,7 @@
+set COR_ENABLE_PROFILING=1
+set COR_PROFILER_PATH=D:\Derek\GitHub\JustShim\JustShimProfiler\Debug\JustShimProfiler.dll
+set COR_PROFILER={03F2B361-A89D-463A-AA65-DB711D4448A0}
+
+
+set COR_PROFILER_PATH=D:\Derek\GitHub\clr-samples\ProfilingAPI\ReJITEnterLeaveHooks\Debug\ClrProfiler.dll
+set COR_PROFILER={cf0d821e-299b-5307-a3d8-b283c03916dd}
