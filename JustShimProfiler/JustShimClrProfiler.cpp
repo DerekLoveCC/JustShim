@@ -13,8 +13,8 @@ JustShimClrProfiler::~JustShimClrProfiler() {
 
 HRESULT STDMETHODCALLTYPE JustShimClrProfiler::QueryInterface(REFIID riid, void** ppvObject)
 {
-    if (riid == __uuidof(ICorProfilerCallback9) ||
-        riid == __uuidof(ICorProfilerCallback8) ||
+    if (/*riid == __uuidof(ICorProfilerCallback9) ||
+        riid == __uuidof(ICorProfilerCallback8) ||*/
         riid == __uuidof(ICorProfilerCallback7) ||
         riid == __uuidof(ICorProfilerCallback6) ||
         riid == __uuidof(ICorProfilerCallback5) ||
@@ -508,23 +508,23 @@ HRESULT STDMETHODCALLTYPE JustShimClrProfiler::GetAssemblyReferences(const WCHAR
     return S_OK;
 }
 
-//above ICorProfilerCallback6
 HRESULT STDMETHODCALLTYPE JustShimClrProfiler::ModuleInMemorySymbolsUpdated(ModuleID moduleId)
 {
     return S_OK;
 }
 
-HRESULT STDMETHODCALLTYPE JustShimClrProfiler::DynamicMethodJITCompilationStarted(FunctionID functionId, BOOL fIsSafeToBlock, LPCBYTE pILHeader, ULONG cbILHeader)
-{
-    return S_OK;
-}
-
-HRESULT STDMETHODCALLTYPE JustShimClrProfiler::DynamicMethodJITCompilationFinished(FunctionID functionId, HRESULT hrStatus, BOOL fIsSafeToBlock)
-{
-    return S_OK;
-}
-
-HRESULT STDMETHODCALLTYPE JustShimClrProfiler::DynamicMethodUnloaded(FunctionID functionId)
-{
-    return S_OK;
-}
+//above ICorProfilerCallback7
+//HRESULT STDMETHODCALLTYPE JustShimClrProfiler::DynamicMethodJITCompilationStarted(FunctionID functionId, BOOL fIsSafeToBlock, LPCBYTE pILHeader, ULONG cbILHeader)
+//{
+//    return S_OK;
+//}
+//
+//HRESULT STDMETHODCALLTYPE JustShimClrProfiler::DynamicMethodJITCompilationFinished(FunctionID functionId, HRESULT hrStatus, BOOL fIsSafeToBlock)
+//{
+//    return S_OK;
+//}
+//
+//HRESULT STDMETHODCALLTYPE JustShimClrProfiler::DynamicMethodUnloaded(FunctionID functionId)
+//{
+//    return S_OK;
+//}
