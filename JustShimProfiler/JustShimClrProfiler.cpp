@@ -52,7 +52,7 @@ ULONG STDMETHODCALLTYPE JustShimClrProfiler::Release(void)
 
 HRESULT STDMETHODCALLTYPE JustShimClrProfiler::Initialize(IUnknown* pICorProfilerInfoUnk)
 {
-    HRESULT queryInterfaceResult = pICorProfilerInfoUnk->QueryInterface(__uuidof(ICorProfilerInfo8), reinterpret_cast<void**>(&this->corProfilerInfo));
+    HRESULT queryInterfaceResult = pICorProfilerInfoUnk->QueryInterface(__uuidof(ICorProfilerInfo7), reinterpret_cast<void**>(&this->corProfilerInfo));
     if (FAILED(queryInterfaceResult)) {
         return E_FAIL;
     }
