@@ -71,5 +71,11 @@
   <ItemGroup>
     <None Include="App.config" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\JustShim\JustShim.csproj">
+      <Project>{a6be91c6-0066-4a0e-a514-446206de1878}</Project>
+      <Name>JustShim</Name>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
