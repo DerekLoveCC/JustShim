@@ -43,7 +43,7 @@ namespace JustShim.Helpers
 
         public static void ValidateReplacementMethodSignature(MethodBase original, MethodInfo replacement, Type type, bool setter)
         {
-            bool isValueType = original.DeclaringType.IsValueType;
+            bool isValueType = original.IsForValueType();
             bool isStatic = original.IsStatic;
             bool isConstructor = original.IsConstructor;
             bool isStaticOrConstructor = isStatic || isConstructor;

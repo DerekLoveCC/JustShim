@@ -48,14 +48,9 @@
     <Compile Include="Delegates\FuncRef.cs" />
     <Compile Include="Exceptions\InvalidShimSignatureException.cs" />
     <Compile Include="Extensions\DictionaryExtensions.cs" />
-    <Compile Include="Extensions\ILGeneratorExtensions.cs" />
     <Compile Include="Extensions\MethodBaseExtensions.cs" />
     <Compile Include="Helpers\ShimHelper.cs" />
     <Compile Include="Helpers\StubHelper.cs" />
-    <Compile Include="IL\DebugHelpers\BrowsableDynamicMethod.cs" />
-    <Compile Include="IL\DebugHelpers\DynamicMethodBody.cs" />
-    <Compile Include="IL\DebugHelpers\DynamicModule.cs" />
-    <Compile Include="IL\ExceptionHandler.cs" />
     <Compile Include="IL\MethodDisassembler.cs" />
     <Compile Include="IL\MethodRewriter.cs" />
     <Compile Include="IL\Stubs.cs" />

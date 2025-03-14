@@ -1,95 +1,66 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Emit;
-using System.Runtime.CompilerServices;
-
-using JustShim.Reflection;
 
 using JustShim.Extensions;
 using JustShim.Helpers;
-using JustShim.IL.DebugHelpers;
+using JustShim.Reflection;
 
 namespace JustShim.IL
 {
     internal class MethodRewriter
     {
-        private MethodBase m_method;
+        private MethodBase _method;
 
-        private Type m_owningType;
+        private MethodRewriter() { }
 
-        private bool m_isInterfaceDispatch;
-
-        private int m_exceptionBlockLevel;
-
-        private TypeInfo m_constrainedType;
-
-        private static List<OpCode> s_IngoredOpCodes = new List<OpCode> { OpCodes.Endfilter, OpCodes.Endfinally };
-
-        public static MethodRewriter CreateRewriter(MethodBase method, bool isInterfaceDispatch)
+        public static MethodRewriter CreateRewriter(MethodBase method)
         {
-            return new MethodRewriter { m_method = method, m_owningType = method.DeclaringType, m_isInterfaceDispatch = isInterfaceDispatch };
+            return new MethodRewriter { _method = method };
         }
 
         public MethodBase Rewrite()
         {
             List<Type> parameterTypes = new List<Type>();
-            if (!m_method.IsStatic)
+            if (!_method.IsStatic)
             {
-                Type thisType = m_isInterfaceDispatch ? typeof(object) : m_owningType;
-                if (!m_isInterfaceDispatch && m_owningType.IsValueType)
-                {
-                    thisType = thisType.MakeByRefType();
-                }
-
-                parameterTypes.Add(thisType);
+                if (_method.IsForValueType())
+                    parameterTypes.Add(_method.DeclaringType.MakeByRefType());
+                else
+                    parameterTypes.Add(_method.DeclaringType);
             }
 
-            parameterTypes.AddRange(m_method.GetParameters().Select(p => p.ParameterType));
-            Type returnType = m_method.IsConstructor ? typeof(void) : (m_method as MethodInfo).ReturnType;
+            parameterTypes.AddRange(_method.GetParameters().Select(p => p.ParameterType));
+            Type returnType = _method.IsConstructor ? typeof(void) : (_method as MethodInfo).ReturnType;
 
             DynamicMethod dynamicMethod = new DynamicMethod(
-                StubHelper.CreateStubNameFromMethod("impl", m_method),
+                string.Format("dynamic_{0}_{1}", _method.DeclaringType, _method.Name),
                 returnType,
                 parameterTypes.ToArray(),
                 StubHelper.GetOwningModule(),
                 true);
 
-            var methodBody = m_method.GetMethodBody();
-            var locals = methodBody.LocalVariables;
-            var targetInstructions = new Dictionary<int, Label>();
-            var handlers = new List<ExceptionHandler>();
+            MethodDisassembler disassembler = new MethodDisassembler(_method);
+            IList<LocalVariableInfo> locals = _method.GetMethodBody().LocalVariables;
+            ILGenerator ilGenerator = dynamicMethod.GetILGenerator();
 
-            var ilGenerator = dynamicMethod.GetILGenerator();
-            var instructions = m_method.GetInstructions();
-
-            foreach (var clause in methodBody.ExceptionHandlingClauses)
-            {
-                ExceptionHandler handler = new ExceptionHandler();
-                handler.Flags = clause.Flags;
-                handler.CatchType = clause.Flags == ExceptionHandlingClauseOptions.Clause ? clause.CatchType : null;
-                handler.TryStart = clause.TryOffset;
-                handler.TryEnd = clause.TryOffset + clause.TryLength;
-                handler.FilterStart = clause.Flags == ExceptionHandlingClauseOptions.Filter ? clause.FilterOffset : -1;
-                handler.HandlerStart = clause.HandlerOffset;
-                handler.HandlerEnd = clause.HandlerOffset + clause.HandlerLength;
-                handlers.Add(handler);
-            }
+            var instructions = disassembler.GetILInstructions();
+            Dictionary<int, Label> targetInstructions = new Dictionary<int, Label>();
 
             foreach (var local in locals)
                 ilGenerator.DeclareLocal(local.LocalType, local.IsPinned);
 
             var ifTargets = instructions
-                .Where(i => i.Operand is Instruction)
+                .Where(i => (i.Operand as Instruction) != null)
                 .Select(i => (i.Operand as Instruction));
 
             foreach (Instruction instruction in ifTargets)
                 targetInstructions.TryAdd(instruction.Offset, ilGenerator.DefineLabel());
 
             var switchTargets = instructions
-                .Where(i => i.Operand is Instruction[])
+                .Where(i => (i.Operand as Instruction[]) != null)
                 .Select(i => (i.Operand as Instruction[]));
 
             foreach (Instruction[] _instructions in switchTargets)
@@ -98,22 +69,10 @@ namespace JustShim.IL
                     targetInstructions.TryAdd(_instruction.Offset, ilGenerator.DefineLabel());
             }
 
-#if DEBUG
-            Debug.WriteLine("\n" + m_method);
-#endif
-
             foreach (var instruction in instructions)
             {
-#if DEBUG
-                Debug.WriteLine(instruction);
-#endif
-
-                EmitILForExceptionHandlers(ilGenerator, instruction, handlers);
-
                 if (targetInstructions.TryGetValue(instruction.Offset, out Label label))
                     ilGenerator.MarkLabel(label);
-
-                if (s_IngoredOpCodes.Contains(instruction.OpCode)) continue;
 
                 switch (instruction.OpCode.OperandType)
                 {
@@ -156,91 +115,15 @@ namespace JustShim.IL
                         EmitILForInlineMember(ilGenerator, instruction);
                         break;
                     default:
-                        throw new NotSupportedException(instruction.OpCode.OperandType.ToString());
+                        throw new NotSupportedException();
                 }
             }
 
-#if DEBUG
-            var ilBytes = ilGenerator.GetILBytes();
-            var browsableDynamicMethod = new BrowsableDynamicMethod(dynamicMethod, new DynamicMethodBody(ilBytes, locals));
-            Debug.WriteLine("\n" + dynamicMethod);
-
-            foreach (var instruction in browsableDynamicMethod.GetInstructions())
-            {
-                Debug.WriteLine(instruction);
-            }
-#endif
             return dynamicMethod;
         }
 
-        private void EmitILForExceptionHandlers(ILGenerator ilGenerator, Instruction instruction, List<ExceptionHandler> handlers)
-        {
-            var tryBlocks = handlers.Where(h => h.TryStart == instruction.Offset).GroupBy(h => h.TryEnd);
-            foreach (var tryBlock in tryBlocks)
-            {
-                ilGenerator.BeginExceptionBlock();
-                m_exceptionBlockLevel++;
-            }
-
-            var filterBlock = handlers.FirstOrDefault(h => h.FilterStart == instruction.Offset);
-            if (filterBlock != null)
-            {
-                ilGenerator.BeginExceptFilterBlock();
-            }
-
-            var handler = handlers.FirstOrDefault(h => h.HandlerEnd == instruction.Offset);
-            if (handler != null)
-            {
-                if (handler.Flags == ExceptionHandlingClauseOptions.Finally)
-                {
-                    // Finally blocks are always the last handler
-                    ilGenerator.EndExceptionBlock();
-                    m_exceptionBlockLevel--;
-                }
-                else if (handler.HandlerEnd == handlers.Where(h => h.TryStart == handler.TryStart && h.TryEnd == handler.TryEnd).Max(h => h.HandlerEnd))
-                {
-                    // We're dealing with the last catch block
-                    ilGenerator.EndExceptionBlock();
-                    m_exceptionBlockLevel--;
-                }
-            }
-
-            var catchOrFinallyBlock = handlers.FirstOrDefault(h => h.HandlerStart == instruction.Offset);
-            if (catchOrFinallyBlock != null)
-            {
-                if (catchOrFinallyBlock.Flags == ExceptionHandlingClauseOptions.Clause)
-                {
-                    ilGenerator.BeginCatchBlock(catchOrFinallyBlock.CatchType);
-                }
-                else if (catchOrFinallyBlock.Flags == ExceptionHandlingClauseOptions.Filter)
-                {
-                    ilGenerator.BeginCatchBlock(null);
-                }
-                else if (catchOrFinallyBlock.Flags == ExceptionHandlingClauseOptions.Finally)
-                {
-                    ilGenerator.BeginFinallyBlock();
-                }
-                else
-                {
-                    // No support for fault blocks
-                    throw new NotSupportedException();
-                }
-            }
-        }
-
-        private void EmitThisPointerAccessForBoxedValueType(ILGenerator ilGenerator)
-        {
-            ilGenerator.Emit(OpCodes.Call, typeof(Unsafe).GetMethod("Unbox").MakeGenericMethod(m_method.DeclaringType));
-        }
-
         private void EmitILForInlineNone(ILGenerator ilGenerator, Instruction instruction)
-        {
-            ilGenerator.Emit(instruction.OpCode);
-            if (m_isInterfaceDispatch && m_owningType.IsValueType && instruction.OpCode == OpCodes.Ldarg_0)
-            {
-                EmitThisPointerAccessForBoxedValueType(ilGenerator);
-            }
-        }
+            => ilGenerator.Emit(instruction.OpCode);
 
         private void EmitILForInlineI(ILGenerator ilGenerator, Instruction instruction)
             => ilGenerator.Emit(instruction.OpCode, (int)instruction.Operand);
@@ -269,30 +152,37 @@ namespace JustShim.IL
             Instruction instruction, Dictionary<int, Label> targetInstructions)
         {
             Label targetLabel = targetInstructions[(instruction.Operand as Instruction).Offset];
-
-            OpCode opCode = instruction.OpCode;
-
             // Offset values could change and not be short form anymore
-            if (opCode == OpCodes.Br_S) opCode = OpCodes.Br;
-            else if (opCode == OpCodes.Brfalse_S) opCode = OpCodes.Brfalse;
-            else if (opCode == OpCodes.Brtrue_S) opCode = OpCodes.Brtrue;
-            else if (opCode == OpCodes.Beq_S) opCode = OpCodes.Beq;
-            else if (opCode == OpCodes.Bge_S) opCode = OpCodes.Bge;
-            else if (opCode == OpCodes.Bgt_S) opCode = OpCodes.Bgt;
-            else if (opCode == OpCodes.Ble_S) opCode = OpCodes.Ble;
-            else if (opCode == OpCodes.Blt_S) opCode = OpCodes.Blt;
-            else if (opCode == OpCodes.Bne_Un_S) opCode = OpCodes.Bne_Un;
-            else if (opCode == OpCodes.Bge_Un_S) opCode = OpCodes.Bge_Un;
-            else if (opCode == OpCodes.Bgt_Un_S) opCode = OpCodes.Bgt_Un;
-            else if (opCode == OpCodes.Ble_Un_S) opCode = OpCodes.Ble_Un;
-            else if (opCode == OpCodes.Blt_Un_S) opCode = OpCodes.Blt_Un;
-            else if (opCode == OpCodes.Leave_S) opCode = OpCodes.Leave;
-
-            // Check if 'Leave' opcode is being used in an exception block,
-            // only emit it if that's not the case
-            if (opCode == OpCodes.Leave && m_exceptionBlockLevel > 0) return;
-
-            ilGenerator.Emit(opCode, targetLabel);
+            if (instruction.OpCode == OpCodes.Br_S)
+                ilGenerator.Emit(OpCodes.Br, targetLabel);
+            else if (instruction.OpCode == OpCodes.Brfalse_S)
+                ilGenerator.Emit(OpCodes.Brfalse, targetLabel);
+            else if (instruction.OpCode == OpCodes.Brtrue_S)
+                ilGenerator.Emit(OpCodes.Brtrue, targetLabel);
+            else if (instruction.OpCode == OpCodes.Beq_S)
+                ilGenerator.Emit(OpCodes.Beq, targetLabel);
+            else if (instruction.OpCode == OpCodes.Bge_S)
+                ilGenerator.Emit(OpCodes.Bge, targetLabel);
+            else if (instruction.OpCode == OpCodes.Bgt_S)
+                ilGenerator.Emit(OpCodes.Bgt, targetLabel);
+            else if (instruction.OpCode == OpCodes.Ble_S)
+                ilGenerator.Emit(OpCodes.Ble, targetLabel);
+            else if (instruction.OpCode == OpCodes.Blt_S)
+                ilGenerator.Emit(OpCodes.Blt, targetLabel);
+            else if (instruction.OpCode == OpCodes.Bne_Un_S)
+                ilGenerator.Emit(OpCodes.Bne_Un, targetLabel);
+            else if (instruction.OpCode == OpCodes.Bge_Un_S)
+                ilGenerator.Emit(OpCodes.Bge_Un, targetLabel);
+            else if (instruction.OpCode == OpCodes.Bgt_Un_S)
+                ilGenerator.Emit(OpCodes.Bgt_Un, targetLabel);
+            else if (instruction.OpCode == OpCodes.Ble_Un_S)
+                ilGenerator.Emit(OpCodes.Ble_Un, targetLabel);
+            else if (instruction.OpCode == OpCodes.Blt_Un_S)
+                ilGenerator.Emit(OpCodes.Blt_Un, targetLabel);
+            else if (instruction.OpCode == OpCodes.Leave_S)
+                ilGenerator.Emit(OpCodes.Leave, targetLabel);
+            else
+                ilGenerator.Emit(instruction.OpCode, targetLabel);
         }
 
         private void EmitILForInlineSwitch(ILGenerator ilGenerator,
@@ -309,114 +199,89 @@ namespace JustShim.IL
         {
             int index = 0;
             if (instruction.OpCode.Name.Contains("loc"))
-            {
                 index = ((LocalVariableInfo)instruction.Operand).LocalIndex;
-            }
             else
             {
                 index = ((ParameterInfo)instruction.Operand).Position;
-                index += m_method.IsStatic ? 0 : 1;
+                index = _method.IsStatic ? index : index + 1;
             }
 
             if (instruction.OpCode.OperandType == OperandType.ShortInlineVar)
                 ilGenerator.Emit(instruction.OpCode, (byte)index);
             else
-                ilGenerator.Emit(instruction.OpCode, (ushort)index);
-
-            if (m_isInterfaceDispatch && m_owningType.IsValueType && instruction.OpCode.Name.StartsWith("ldarg") && index == 0)
-            {
-                EmitThisPointerAccessForBoxedValueType(ilGenerator);
-            }
+                ilGenerator.Emit(instruction.OpCode, (short)index);
         }
 
-        private void EmitILForType(ILGenerator ilGenerator, Instruction instruction, TypeInfo typeInfo)
+        private void EmitILForConstructor(ILGenerator ilGenerator, Instruction instruction, MemberInfo memberInfo)
         {
-            if (instruction.OpCode == OpCodes.Constrained)
+            ConstructorInfo constructorInfo = memberInfo as ConstructorInfo;
+            if (PoseContext.StubCache.TryGetValue(constructorInfo, out DynamicMethod stub))
             {
-                m_constrainedType = typeInfo;
+                ilGenerator.Emit(OpCodes.Ldtoken, constructorInfo);
+                ilGenerator.Emit(OpCodes.Ldtoken, constructorInfo.DeclaringType);
+                ilGenerator.Emit(OpCodes.Call, stub);
                 return;
             }
 
-            ilGenerator.Emit(instruction.OpCode, typeInfo);
+            MethodBody methodBody = constructorInfo.GetMethodBody();
+            if (methodBody == null)
+            {
+                ilGenerator.Emit(instruction.OpCode, constructorInfo);
+                return;
+            }
+
+            if (instruction.OpCode != OpCodes.Newobj && instruction.OpCode != OpCodes.Call)
+            {
+                ilGenerator.Emit(instruction.OpCode, constructorInfo);
+                return;
+            }
+
+            stub = Stubs.GenerateStubForConstructor(constructorInfo, instruction.OpCode, constructorInfo.IsForValueType());
+            ilGenerator.Emit(OpCodes.Ldtoken, constructorInfo);
+            ilGenerator.Emit(OpCodes.Ldtoken, constructorInfo.DeclaringType);
+            ilGenerator.Emit(OpCodes.Call, stub);
+            PoseContext.StubCache.TryAdd(constructorInfo, stub);
         }
 
-        private void EmitILForConstructor(ILGenerator ilGenerator, Instruction instruction, ConstructorInfo constructorInfo)
+        private void EmitILForMethod(ILGenerator ilGenerator, Instruction instruction, MemberInfo memberInfo)
         {
-            if (constructorInfo.InCoreLibrary())
+            MethodInfo methodInfo = memberInfo as MethodInfo;
+            if (PoseContext.StubCache.TryGetValue(methodInfo, out DynamicMethod stub))
             {
-                // Don't attempt to rewrite unaccessible constructors in System.Private.CoreLib/mscorlib
-                if (!constructorInfo.DeclaringType.IsPublic) goto forward;
-                if (!constructorInfo.IsPublic && !constructorInfo.IsFamily && !constructorInfo.IsFamilyOrAssembly) goto forward;
-            }
-
-            if (instruction.OpCode == OpCodes.Call)
-            {
-                ilGenerator.Emit(OpCodes.Call, Stubs.GenerateStubForDirectCall(constructorInfo));
+                ilGenerator.Emit(OpCodes.Ldtoken, methodInfo);
+                ilGenerator.Emit(OpCodes.Ldtoken, methodInfo.DeclaringType);
+                ilGenerator.Emit(OpCodes.Call, stub);
                 return;
             }
 
-            if (instruction.OpCode == OpCodes.Newobj)
+            MethodBody methodBody = methodInfo.GetMethodBody();
+            if (methodBody == null && !methodInfo.IsAbstract)
             {
-                ilGenerator.Emit(OpCodes.Call, Stubs.GenerateStubForObjectInitialization(constructorInfo));
+                ilGenerator.Emit(instruction.OpCode, methodInfo);
                 return;
             }
 
-            if (instruction.OpCode == OpCodes.Ldftn)
+            if (instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt)
             {
-                ilGenerator.Emit(OpCodes.Call, Stubs.GenerateStubForDirectLoad(constructorInfo));
-                return;
+                stub = instruction.OpCode == OpCodes.Call ?
+                    Stubs.GenerateStubForMethod(methodInfo) : Stubs.GenerateStubForVirtualMethod(methodInfo);
+                ilGenerator.Emit(OpCodes.Ldtoken, methodInfo);
+                ilGenerator.Emit(OpCodes.Ldtoken, methodInfo.DeclaringType);
+                ilGenerator.Emit(OpCodes.Call, stub);
+                PoseContext.StubCache.TryAdd(methodInfo, stub);
             }
-
-            // If we get here, then we haven't accounted for an opcode.
-            // Throw exception to make this obvious.
-            throw new NotSupportedException(instruction.OpCode.Name);
-
-        forward:
-            ilGenerator.Emit(instruction.OpCode, constructorInfo);
-        }
-
-        private void EmitILForMethod(ILGenerator ilGenerator, Instruction instruction, MethodInfo methodInfo)
-        {
-            if (methodInfo.InCoreLibrary())
+            else if (instruction.OpCode == OpCodes.Ldftn)
             {
-                // Don't attempt to rewrite unaccessible methods in System.Private.CoreLib/mscorlib
-                if (!methodInfo.DeclaringType.IsPublic) goto forward;
-                if (!methodInfo.IsPublic && !methodInfo.IsFamily && !methodInfo.IsFamilyOrAssembly) goto forward;
+                stub = Stubs.GenerateStubForMethodPointer(methodInfo);
+                ilGenerator.Emit(OpCodes.Ldtoken, methodInfo);
+                ilGenerator.Emit(OpCodes.Ldtoken, methodInfo.DeclaringType);
+                ilGenerator.Emit(OpCodes.Call, stub);
+                PoseContext.StubCache.TryAdd(methodInfo, stub);
             }
-
-            if (instruction.OpCode == OpCodes.Call)
+            else
             {
-                ilGenerator.Emit(OpCodes.Call, Stubs.GenerateStubForDirectCall(methodInfo));
-                return;
+                ilGenerator.Emit(instruction.OpCode, methodInfo);
             }
-
-            if (instruction.OpCode == OpCodes.Callvirt)
-            {
-                if (m_constrainedType != null)
-                {
-                    ilGenerator.Emit(OpCodes.Call, Stubs.GenerateStubForVirtualCall(methodInfo, m_constrainedType));
-                    m_constrainedType = null;
-                    return;
-                }
-
-                ilGenerator.Emit(OpCodes.Call, Stubs.GenerateStubForVirtualCall(methodInfo));
-                return;
-            }
-
-            if (instruction.OpCode == OpCodes.Ldftn)
-            {
-                ilGenerator.Emit(OpCodes.Call, Stubs.GenerateStubForDirectLoad(methodInfo));
-                return;
-            }
-
-            if (instruction.OpCode == OpCodes.Ldvirtftn)
-            {
-                ilGenerator.Emit(OpCodes.Call, Stubs.GenerateStubForVirtualLoad(methodInfo));
-                return;
-            }
-
-        forward:
-            ilGenerator.Emit(instruction.OpCode, methodInfo);
         }
 
         private void EmitILForInlineMember(ILGenerator ilGenerator, Instruction instruction)
@@ -424,20 +289,20 @@ namespace JustShim.IL
             MemberInfo memberInfo = (MemberInfo)instruction.Operand;
             if (memberInfo.MemberType == MemberTypes.Field)
             {
-                ilGenerator.Emit(instruction.OpCode, memberInfo as FieldInfo);
+                ilGenerator.Emit(instruction.OpCode, (MemberInfo)instruction.Operand as FieldInfo);
             }
             else if (memberInfo.MemberType == MemberTypes.TypeInfo
                 || memberInfo.MemberType == MemberTypes.NestedType)
             {
-                EmitILForType(ilGenerator, instruction, memberInfo as TypeInfo);
+                ilGenerator.Emit(instruction.OpCode, (MemberInfo)instruction.Operand as TypeInfo);
             }
             else if (memberInfo.MemberType == MemberTypes.Constructor)
             {
-                EmitILForConstructor(ilGenerator, instruction, memberInfo as ConstructorInfo);
+                EmitILForConstructor(ilGenerator, instruction, memberInfo);
             }
             else if (memberInfo.MemberType == MemberTypes.Method)
             {
-                EmitILForMethod(ilGenerator, instruction, memberInfo as MethodInfo);
+                EmitILForMethod(ilGenerator, instruction, memberInfo);
             }
             else
             {

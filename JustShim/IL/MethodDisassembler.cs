@@ -23,7 +23,7 @@ namespace JustShim.IL
         public List<MethodBase> GetMethodDependencies()
         {
             var methodDependencies = GetILInstructions()
-                .Where(i => i.Operand is MethodInfo || i.Operand is ConstructorInfo)
+                .Where(i => (i.Operand as MethodInfo) != null || (i.Operand as ConstructorInfo) != null)
                 .Select(i => (i.Operand as MethodBase));
 
             return methodDependencies.ToList();
